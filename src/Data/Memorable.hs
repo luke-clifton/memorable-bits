@@ -55,6 +55,8 @@
 
 module Data.Memorable
 	( (:<>)
+	, (:<->)
+	, (:<.>)
 	, (:<|>)
 	, Choose
 	, Concat
@@ -107,6 +109,9 @@ data a :<|> b
 -- | Concatenate two things together.
 -- This adds no bits, but the resulting length is the sum of the two parts.
 data a :<> b
+
+type a :<-> b = a :<> "-" :<> b
+type a :<.> b = a :<> "." :<> b
 
 -- | Should be equivalent to `ToTree`, but more performant type checking.
 data Choose (s :: [Symbol])
@@ -286,10 +291,11 @@ instance (MemRender a, MemRender b) => MemRender (a :<|> b) where
 
 instance (NumberRender nt, KnownNat a, KnownNat o) => MemRender (NumberWithOffset nt a o) where
 	render _ = do
-		w <- getWord (fromIntegral $ natVal (Proxy :: Proxy a))
 		let
 			o = natVal (Proxy :: Proxy o)
-		return $ renderNumber (Proxy :: Proxy nt) (w + o)
+			b = natVal (Proxy :: Proxy a)
+		w <- getWord $ fromIntegral b
+		return $ renderNumber (Proxy :: Proxy nt) b (w + o)
 
 
 instance (MemRender a, MaxBits a <= n, NumberRender nt, KnownNat n, KnownSymbol s) => MemRender (PadTo s nt n a) where
@@ -299,13 +305,13 @@ instance (MemRender a, MaxBits a <= n, NumberRender nt, KnownNat n, KnownSymbol 
 		let
 			n = natVal (Proxy :: Proxy n)
 			ntp = Proxy :: Proxy nt
-			diff = fromIntegral n -  c
+			diff = n - fromIntegral c
 			sep = symbolVal (Proxy :: Proxy s)
 		case diff of
 			0 -> return s1
 			_ -> do
-				d <- getWord diff
-				return $ s1 ++ sep ++ renderNumber ntp d
+				d <- getWord $ fromIntegral diff
+				return $ s1 ++ sep ++ renderNumber ntp diff d
 
 
 ---------------------------------------------------------------------
@@ -314,20 +320,21 @@ instance (MemRender a, MaxBits a <= n, NumberRender nt, KnownNat n, KnownSymbol 
 
 -- | Class for capturing how to render numbers.
 class NumberRender n where
-	renderNumber :: Proxy n -> Integer -> String
+	renderNumber :: Proxy n -> Integer -> Integer -> String
 
 
 -- | Render numbers as decimal numbers
 data Dec
 
 instance NumberRender Dec where
-	renderNumber _ = show
+	renderNumber _ _ = show
+
 
 -- | Render numbers as hexadecimal numbers
 data Hex
 
 instance NumberRender Hex where
-	renderNumber _ i = showHex i ""
+	renderNumber _ _ i = showHex i ""
 
 
 ---------------------------------------------------------------------
