@@ -186,7 +186,6 @@ type family IsPowerOfTwo (a :: Nat) :: Bool where
 	IsPowerOfTwo 1024 = True
 	IsPowerOfTwo 2048 = True
 	IsPowerOfTwo 4096 = True
-	IsPowerOfTwo 4096 = True
 	IsPowerOfTwo 8192 = True
 
 type family BitsInPowerOfTwo (a :: Nat) :: Nat where
