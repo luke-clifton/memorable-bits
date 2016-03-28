@@ -14,6 +14,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Data.Memorable
+                     , Data.Memorable.Theme.Food
                      , Data.Memorable.Theme.Fantasy
                      , Data.Memorable.Theme.Metric
                      , Data.Memorable.Theme.Science
