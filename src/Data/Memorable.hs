@@ -18,7 +18,7 @@
 -- >>> :set -XOverloadedStrings
 -- >>> import Data.Memorable.Theme.Fantasy
 -- >>> renderMemorable rpgThings "\123\66\12\45\46\100"
--- "sacred axe of vampire splaterring"
+-- "sacred axe of vampire splattering"
 --
 -- Because this is a type level API, it is possible to write safe interfaces
 -- to rendering specific things, and ensuring that the correct number of bits

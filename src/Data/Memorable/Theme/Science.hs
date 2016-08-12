@@ -12,7 +12,7 @@ type NumericPrefix a
 	:<|> ((("6" :<> "-" :<> a):<|>("9" :<> "-" :<> a)) :<|> (("mono" :<> a):<|>("8" :<> "-" :<> a)))
 
 type ChemPrefix = ToTree '["propyl", "ethyl", "pyridine", "sd", "methyl", "benzene", "hydro", "ferro"]
-type ChemSuffix = ToTree '["oxide", "carbide", "sulfide", "flouride"]
+type ChemSuffix = ToTree '["oxide", "carbide", "sulfide", "fluoride"]
 type ChemBabble = NumericPrefix ChemPrefix :<> "-" :<> NumericPrefix ChemPrefix :<> "-" :<> ChemSuffix
 
 chemBabble :: Proxy ChemBabble

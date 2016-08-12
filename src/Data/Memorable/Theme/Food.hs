@@ -40,7 +40,7 @@ type FoodAdjectives = ToTree
 	 , "bland"
 	 , "gourmet"
 	 , "tasty"
-	 , "tastless"
+	 , "tasteless"
 	 , "refreshing"
 	 , "sensational"
 	 , "crunchy"
