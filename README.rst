@@ -9,7 +9,7 @@ level, which can ensure, at compile time, that the phrase generated has
 enough bits to cover the data being converted (though, you can opt out, and
 just live with a prefix if you want).
 
-The library comes with some pre-baked themes:
+The library comes with some pre-baked themes::
 
     ghci> :set -XOverloadedStrings
     ghci> import Data.Memorable
@@ -30,7 +30,7 @@ The library comes with some pre-baked themes:
     ghci> renderMemorable chemBabble "memorable"
     "6-methyl-9-ethyl-sulfide"
 
-But you can easily create your own and mix and match:
+But you can easily create your own and mix and match::
 
     ghci> :set -XDataKinds
     ghci> import Data.Memorable.Theme.Fantasy as Fantasy
@@ -40,7 +40,7 @@ But you can easily create your own and mix and match:
     ghci> renderMemorable myPattern "memorable"
     "3-chocolate-goblins"
 
-You can check how many bits are covered by your pattern:
+You can check how many bits are covered by your pattern::
 
     ghci> :kind! MinBits MyPattern
     MinBits MyPattern :: Nat
@@ -53,7 +53,7 @@ Here our pattern consumes 7 bits, regardless of which path through the pattern
 it takes. This is can be required by using the ``ConstantSize`` or ``ExactSize``
 constraint on a pattern. It is fairly important to make sure your pattern
 contains enough bits to be useful for your application. In GHCi, use the
-same trick as above to explore your options:
+same trick as above to explore your options::
 
     ghci> :kind! MinBits Words
     MinBits Words :: Nat
@@ -63,7 +63,7 @@ same trick as above to explore your options:
     = 24
 
 If you really need each string to cover the entire input range, and are happy
-to have some non-human readable parts, use ``PadTo``
+to have some non-human readable parts, use ``PadTo``::
 
     ghci> :kind! MinBits (PadTo "-" Hex 512 Words)
     MinBits (PadTo "-" Hex 72 Words) :: Nat
