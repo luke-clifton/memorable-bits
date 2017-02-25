@@ -3,29 +3,29 @@
 
 name:                memorable-bits
 version:             0.1.0.0
-synopsis:            Generate human memorable strings from hashes, IP addresses or arbitrary binary data/
+synopsis:            Generate human memorable strings from binary data.
 license:             BSD2
 license-file:        LICENSE
 author:              Luke Clifton
-maintainer:          ltclifton@gmail.com
+maintainer:          lukec@themk.net
 category:            Data
 build-type:          Simple
 cabal-version:       >=1.10
 
 library
   exposed-modules:     Data.Memorable
+                     , Data.Memorable.Internal
                      , Data.Memorable.Theme.Food
                      , Data.Memorable.Theme.Fantasy
                      , Data.Memorable.Theme.Metric
                      , Data.Memorable.Theme.Science
                      , Data.Memorable.Theme.Words
-                     , Data.Memorable.Theme.Words.Internal
-  build-depends:       base >=4.8 && <4.9
+  build-depends:       base >=4.8 && <4.10
                      , binary
                      , binary-bits
                      , bytestring
+                     , template-haskell
                      , random 
-                     , vector
                      , mtl
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -33,7 +33,7 @@ library
 test-suite test-memorable-bits
   type:                exitcode-stdio-1.0
   main-is:             test/Main.hs
-  build-depends:       base >=4.8 && <4.9
+  build-depends:       base >=4.8 && <4.10
                      , memorable-bits
                      , tasty
                      , tasty-hunit
@@ -44,7 +44,7 @@ test-suite test-memorable-bits
 benchmark bench-memorable-bits
   type:                exitcode-stdio-1.0
   main-is:             bench/Main.hs
-  build-depends:       base >=4.8 && <4.9
+  build-depends:       base >=4.8 && <4.10
                      , criterion
                      , memorable-bits
                      , random

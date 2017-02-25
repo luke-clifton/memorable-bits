@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -fno-warn-tabs #-}
 module Main where
 
 import Control.Monad
@@ -6,23 +5,24 @@ import Criterion.Main
 import Data.ByteString.Lazy (ByteString, pack)
 import Data.Memorable
 import Data.Memorable.Theme.Words
-import Data.Memorable.Theme.Fantasy
-import Data.Memorable.Theme.Science
 import System.Random
+import Data.Word
 
-benchmarks :: ByteString -> [Benchmark]
-benchmarks d =
-	[ bgroup "words"
-		[ bench "oneWord"    $ nf (renderMemorable oneWord) d
-		, bench "twoWords"   $ nf (renderMemorable twoWords) d
-		, bench "threeWords" $ nf (renderMemorable threeWords) d
-		, bench "fourWords"  $ nf (renderMemorable fourWords) d
-		, bench "rpgThings"  $ nf (renderMemorable rpgThings) d
-		, bench "chemBabble"  $ nf (renderMemorable chemBabble) d
-		]
-	]
+benchmarks :: Word8 -> Word32 -> Word64 -> [Benchmark]
+benchmarks w8 w32 w64 =
+    [ bgroup "words"
+        [ bench "word8"               $ nf (renderMemorable words8) w8
+        , bench "threeWordsFor32Bits" $ nf (renderMemorable threeWordsFor32Bits) w32
+        , bench "fourWordsFor32Bits"  $ nf (renderMemorable fourWordsFor32Bits) w32
+        , bench "sixWordsFor64Bits"   $ nf (renderMemorable sixWordsFor64Bits) w64
+        , bench "eightWordsFor64Bits" $ nf (renderMemorable eightWordsFor64Bits) w64
+        , bench "big tuple"           $ nf (renderMemorable (four eightWordsFor64Bits)) (w64,w64,w64,w64)
+        ]
+    ]
 
 main :: IO ()
 main = do
-	d <- pack <$> replicateM 500 randomIO
-	defaultMain $ benchmarks d
+    w8 <- randomIO
+    w32 <- randomIO
+    w64 <- randomIO
+    defaultMain $ benchmarks w8 w32 w64
