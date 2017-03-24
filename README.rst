@@ -6,8 +6,7 @@ A library for generating human-readable (and memorable) phrases from
 data. What sets this library apart from most others, is that it is highly
 customisable. The phrases that are generated are described at the type
 level, which can ensure, at compile time, that the phrase generated has
-enough bits to cover the data being converted (though, you can opt out, and
-just live with a prefix if you want).
+enough bits to cover the data being converted.
 
 The library comes with some pre-baked themes::
 
@@ -15,60 +14,53 @@ The library comes with some pre-baked themes::
     ghci> import Data.Memorable
     ghci>
     ghci> import Data.Memorable.Theme.Fantasy
-    ghci> renderMemorable rpgThings "memorable"
-    "sacred sword of gnoll poking"
+    ghci> renderMemorable (padHex rpgWeapons) (12345 :: Word32)
+    "ghostly-trident-of-zombie-tormenting-039"
     ghci>
-    ghci> import Data.Memorable.Theme.Food
-    ghci> renderMemorable desserts "memorable"
-    "gourmet-chocolate-souffle"
+    ghci> renderMemorable (padHex desserts) (12345 :: Word32)
+    "creamy-cherry-cupcakes-003039"
     ghci>
     ghci> import Data.Memorable.Theme.Words
-    ghci> renderMemorable fourWords "memorable"
-    "count-reform-waters-discussions"
+    ghci> renderMemorable threeWordsFor32Bits (12345 :: Word32)
+    "colleague-peas-omit"
+    ghci>
+    ghci> renderMemorable fourEqualWordsFor32Bits (12345 :: Word32)
+    "chap-chap-iris-rate"
     ghci>
     ghci> import Data.Memorable.Theme.Science
-    ghci> renderMemorable chemBabble "memorable"
-    "6-methyl-9-ethyl-sulfide"
+    ghci> renderMemorable (padDec chemBabble) (0xdeadbeef :: Word32)
+    "tri-propyl-4-benzene-oxide-114415"
 
 But you can easily create your own and mix and match::
 
-    ghci> :set -XDataKinds
+    ghci> :set -XDataKinds -XTypeOperators
     ghci> import Data.Memorable.Theme.Fantasy as Fantasy
     ghci> import Data.Memorable.Theme.Food as Food
-    ghci> type MyPattern = NumberWithOffset Dec 1 3 :<-> Food.DessertFlavours :<-> Fantasy.Monster :<> "s"
+    ghci> type MyPattern = NumberWithOffset Dec 1 3 :- Food.DessertFlavours :- Fantasy.Monster
     ghci> let myPattern = Proxy :: Proxy MyPattern
-    ghci> renderMemorable myPattern "memorable"
-    "3-chocolate-goblins"
+    ghci> renderMemorable (padHex myPatter) (0x4321 :: Word16)
+    "3-blueberry-sphinx-01"
 
 You can check how many bits are covered by your pattern::
 
-    ghci> :kind! MinBits MyPattern
-    MinBits MyPattern :: Nat
-    = 7
-    ghci> :kind! MaxBits MyPattern
-    MaxBits MyPattern :: Nat
+    ghci> :kind! Depth MyPattern
+    Depth MyPattern :: Nat
     = 7
 
-Here our pattern consumes 7 bits, regardless of which path through the pattern
-it takes. This is can be required by using the ``ConstantSize`` or ``ExactSize``
-constraint on a pattern. It is fairly important to make sure your pattern
-contains enough bits to be useful for your application. In GHCi, use the
-same trick as above to explore your options::
+Or using the ``getDepth`` function::
 
-    ghci> :kind! MinBits Words
-    MinBits Words :: Nat
-    = 12
-    ghci> :kind! MinBits (Words :<-> Words)
-    MinBits (Words :<-> Words) :: Nat
-    = 24
+    ghci> getDepth words12
+    12
+    ghci> getDepth (words12 .- words12)
+    24
 
-If you really need each string to cover the entire input range, and are happy
-to have some non-human readable parts, use ``PadTo``::
+If you are happy to have some non-human-readable parts in your pattern, use
+the convenience functions ``padHex`` and ``padDec``::
 
-    ghci> :kind! MinBits (PadTo "-" Hex 512 Words)
-    MinBits (PadTo "-" Hex 72 Words) :: Nat
-    = 72
-    ghci> renderMemorable (Proxy :: Proxy (PadTo "-" Hex 72 Words)) "memorable"
-    "count-a63646864ef6b6a"
-
+    ghci> :set -XOverloadedStrings
+    ghci> import Data.ByteString
+    ghci> import Crypto.Hash
+    ghci> let myPattern = padHex (four flw10)
+    ghci> renderMemorable myPattern (hash ("anExample" :: ByteString) :: Digest MD5)
+    "bark-most-gush-tuft-1b7155ab0dce3ecb4195fc"
 
