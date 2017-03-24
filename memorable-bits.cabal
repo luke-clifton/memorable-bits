@@ -12,6 +12,18 @@ category:            Data
 build-type:          Simple
 cabal-version:       >=1.10
 
+flag data-dword-inst
+  description: Include data-dword and provide instances for its types.
+  default: True
+
+flag network-ip-inst
+  description: Include network-ip and provide instances for its types.
+  default: True
+
+flag cryptonite-inst
+  description: Include cryptonite and provide instances for its types.
+  default: True
+
 library
   exposed-modules:     Data.Memorable
                      , Data.Memorable.Internal
@@ -24,11 +36,22 @@ library
                      , binary
                      , binary-bits
                      , bytestring
-                     , template-haskell
                      , random 
                      , mtl
   hs-source-dirs:      src
   default-language:    Haskell2010
+  if flag(network-ip-inst) {
+    cpp-options: -DNETWORK_IP -DDATA_DWORD
+    build-depends: network-ip, data-dword
+  }
+  if flag(data-dword-inst) {
+    cpp-options: -DDATA_DWORD
+    build-depends: data-dword
+  }
+  if flag(cryptonite-inst) {
+    cpp-options: -DCRYPTONITE
+    build-depends: cryptonite, memory
+  }
 
 test-suite test-memorable-bits
   type:                exitcode-stdio-1.0

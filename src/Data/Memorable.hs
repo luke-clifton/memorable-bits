@@ -1,22 +1,26 @@
 module Data.Memorable
     ( renderMemorable
+    , Memorable
+    -- * Pattern Building
+    , (.-), (.|)
     , two, three, four, five
+    , padHex, padDec
+    , ToTree
+    , leftSide
+    , rightSide
+    -- * Pattern Types
+    , (:-)
+    , MemRender()
     , Number
     , NumberWithOffset
+    , PadTo
     , Dec
     , Hex
-    , (:-)
-    , (.-)
-    , (.|)
-    , leftSide
-    , LeftSide
-    , rightSide
     , Depth
-    , ToTree
-    , MemRender()
-    , Memorable
-    , renderAll
-    , renderMemorableByteString
+    , getDepth
+    , LeftSide
+    , RightSide
+    -- * Re-export
     , Proxy(..)
     ) where
 
