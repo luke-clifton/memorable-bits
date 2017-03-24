@@ -13,10 +13,10 @@ benchmarks w8 w32 w64 =
     [ bgroup "words"
         [ bench "word8"               $ nf (renderMemorable words8) w8
         , bench "threeWordsFor32Bits" $ nf (renderMemorable threeWordsFor32Bits) w32
-        , bench "fourWordsFor32Bits"  $ nf (renderMemorable fourWordsFor32Bits) w32
+        , bench "fourWordsFor32Bits"  $ nf (renderMemorable fourEqualWordsFor32Bits) w32
         , bench "sixWordsFor64Bits"   $ nf (renderMemorable sixWordsFor64Bits) w64
-        , bench "eightWordsFor64Bits" $ nf (renderMemorable eightWordsFor64Bits) w64
-        , bench "big tuple"           $ nf (renderMemorable (four eightWordsFor64Bits)) (w64,w64,w64,w64)
+        , bench "eightWordsFor64Bits" $ nf (renderMemorable eightEqualWordsFor64Bits) w64
+        , bench "big tuple"           $ nf (renderMemorable (four eightEqualWordsFor64Bits)) (w64,w64,w64,w64)
         ]
     ]
 

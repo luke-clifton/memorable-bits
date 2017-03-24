@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -15,6 +16,7 @@
 module Data.Memorable.Internal where
 
 import Control.Arrow (first)
+import Text.Printf
 import Control.Applicative
 import Data.Maybe
 import Control.Monad.State
@@ -23,7 +25,7 @@ import Data.Binary.Bits.Get
 import qualified Data.Binary.Bits.Put as BP
 import Data.Binary.Get (runGet)
 import qualified Data.Binary
-import Data.Binary.Put (runPut, putWord8, putWord16be, putWord32be, putWord64be)
+import Data.Binary.Put (runPut, putByteString, putWord8, putWord16be, putWord32be, putWord64be)
 import Data.Bits
 import Data.Type.Equality
 import Data.Type.Bool
@@ -37,6 +39,16 @@ import GHC.TypeLits
 import GHC.Exts
 import Numeric
 import System.Random (randomIO)
+#ifdef DATA_DWORD
+import Data.DoubleWord
+#endif
+#ifdef NETWORK_IP
+import Network.IP.Addr
+#endif
+#ifdef CRYPTONITE
+import Data.ByteArray (convert)
+import Crypto.Hash
+#endif
 
 -- | Choice between two sub patterns. It's not safe to use this directly.
 -- Use `.|` instead.
@@ -47,12 +59,29 @@ data a :| b
 data a :- b
 
 -- | Proxy version of `:|`. It also constraints the two subpatterns to
--- being the same depth.
+-- being the same depth. Use this to add an extra bit to the pattern depth,
+-- where the bit chooses to proceed down either the left or right side.
+--
+-- >>> :set -XTypeApplications
+-- >>> :set -XDataKinds
+-- >>> import Data.Word
+-- >>> let myPattern = padHex (Proxy @"foo" .| Proxy @"bar")
+-- >>> renderMemorable myPattern (0x00 :: Word8)
+-- "bar-00"
+-- >>> renderMemorable myPattern (0xff :: Word8)
+-- "foo-7f"
+--
+-- See also 'ToTree'
 (.|) :: (Depth a ~ Depth b) => Proxy a -> Proxy b -> Proxy (a :| b)
 _ .| _ = Proxy
 
 -- | Proxy version of `:-`.
--- This adds no bits, but the resulting length is the sum of the two parts.
+-- The new pattern depth is the sum of the two parts.
+-- >>> import Data.Word
+-- >>> import Data.Memorable.Theme.Words
+-- >>> let myPattern = words8 .- words8
+-- >>> renderMemorable myPattern (0xabcd :: Word16)
+-- "ages-old"
 (.-) :: Proxy a -> Proxy b -> Proxy (a :- b)
 _ .- _ = Proxy
 
@@ -67,6 +96,8 @@ data NumberWithOffset nt (n :: Nat) (o :: Nat)
 -- | Pad the `a` argument out to length `n` by taking the remaining bits
 -- and converting them via `nt` (see `Dec` and `Hex`). If padding is required,
 -- it is separated by a dash.
+--
+-- See `padHex` and `padDec` for convinence functions.
 data PadTo nt (n :: Nat) a
 
 
@@ -172,7 +203,12 @@ type family Len (a :: [Symbol]) :: Nat where
     Len '[] = 0
 
 -- | Convert a @'[Symbol]@ to a balanced tree of `:|`. Each result has equal
--- probability of occurring. Length of the list must be a power of two.
+-- probability of occurring. Length of the list must be a power of two. This
+-- is very useful for converting long lists of words into a usable pattern.
+--
+-- >>> > :kind! ToTree '["a", "b", "c", "d"]
+-- ToTree '["a", "b", "c", "d"] :: *
+-- = ("a" :| "b") :| ("c" :| "d")
 type family ToTree (a :: [k]) :: * where
     ToTree (x ': y ': '[] ) = x :| y
     ToTree '[(x :| y)] = x :| y
@@ -188,8 +224,13 @@ type family Intersperse (a :: k) (b :: [k]) :: [k] where
     Intersperse a (b ': cs) = b ': a ': Intersperse a cs
 
 
+-- | Useful to prevent haddock from expanding the type.
 type family LeftSide (a :: *) :: * where
     LeftSide (a :| b) = a
+
+-- | Useful to prevent haddock from expanding the type.
+type family RightSide (a :: *) :: * where
+    RightSide (a :| b) = b
 
 -- | Shrink a branching pattern by discarding the right hand side.
 leftSide :: Proxy (a :| b) -> Proxy a
@@ -235,7 +276,7 @@ type family BitsInPowerOfTwo (a :: Nat) :: Nat where
     BitsInPowerOfTwo 8192 = 13
 
 -- | This type family is used to make sure that the total number of bit's
--- covered by a pattern is a multiple of 8.
+-- covered by a pattern fit's into a integer number of 8 bit bytes.
 type family MultipleOf8 a :: Constraint where
     MultipleOf8 0 = ()
     MultipleOf8 1 = TypeError (Text "Not a multiple of 8")
@@ -295,7 +336,10 @@ type family Depth (a :: k) :: Nat where
     Depth (NumberWithOffset nt a o) = a
     Depth (PadTo nt n a) = n
 
--- | Get the depth of a pattern as a value-level `Integer`
+-- | Get the depth of a pattern as a value-level `Integer`.
+-- >>> :set -XTypeApplications -XDataKinds
+-- >>> getDepth (Proxy @"foo" .| Proxy @"bar")
+-- 1
 getDepth :: forall a. KnownNat (Depth a) => Proxy a -> Integer
 getDepth _ = natVal (Proxy :: Proxy (Depth a))
 
@@ -309,6 +353,7 @@ type family NTimes (n :: Nat) (p :: *) where
     NTimes n a = a :- NTimes (n - 1) a
 
 -- | Put five things next to each other.
+-- Same as using '.-' repeatedly
 five :: Proxy a -> Proxy (a :- a :- a :- a :- a)
 five _ = Proxy
 
@@ -323,6 +368,22 @@ three _ = Proxy
 -- | Put two things next to each other.
 two :: Proxy a -> Proxy (a :- a)
 two _ = Proxy
+
+-- | Pad this pattern out with hex digits. Useful when you want some human
+-- readability, but also want full coverage of the data. See 'Hex' for details.
+--
+-- >>> import Data.Word
+-- >>> import Data.Memorable.Theme.Fantasy
+-- >>> renderMemorable (padHex rpgWeapons) (0xdeadbeef01020304 :: Word64)
+-- "sacred-club-of-ghoul-charming-eef01020304"
+padHex :: Proxy a -> Proxy (PadTo Hex n a)
+padHex _ = Proxy
+
+-- | Pad with decimal digits. See 'padHex' and 'Dec' for details. This does
+-- not pad with 0's
+padDec :: Proxy a -> Proxy (PadTo Dec n a)
+padDec _ = Proxy
+
 
 ---------------------------------------------------------------------
 -- BitPull
@@ -344,7 +405,7 @@ getBit = BitPull $ do
 getWord :: Int -> BitPull Integer
 getWord n = do
     bs <- replicateM n getBit
-    return $ foldl' setBit 0 $ map fst $ filter snd $ zip [0..] bs
+    return $ foldl' setBit 0 $ map fst $ filter snd $ zip [n-1, n-2 ..] bs
 
 -- | Returns the number of bits consumed so far.
 getConsumedCount :: BitPull Int
@@ -435,7 +496,7 @@ class NumberRender n where
     readNumber :: Proxy n -> Integer -> String -> Maybe Integer
 
 
--- | Render numbers as decimal numbers
+-- | Render numbers as decimal numbers. Does not pad.
 data Dec
 
 instance NumberRender Dec where
@@ -445,11 +506,13 @@ instance NumberRender Dec where
         _ -> Nothing
 
 
--- | Render numbers as hexadecimal numbers
+-- | Render numbers as hexadecimal numbers. Pads with 0s.
 data Hex
 
 instance NumberRender Hex where
-    renderNumber _ _ i = showHex i ""
+    renderNumber _ b = printf "%0*x" hexDigits
+        where
+            hexDigits = (b - 1) `div` 4 + 1
     readNumber _ _ input = case readHex input of
         [(v,"")] -> Just v
         _ -> Nothing
@@ -462,12 +525,12 @@ newtype M (n :: Nat) = M Data.Binary.Put
 
 -- | A monoidal-esque combinator for appending @`M` n@ together.
 -- Useful for product instances of @`Memorable`@.
-smoosh :: M a -> M b -> M (a + b)
+smoosh :: (MultipleOf8 a) => M a -> M b -> M (a + b)
 smoosh (M x) (M y) = M (x <> y)
 
 -- | Class for all things that can be converted to memorable strings.
 -- See `renderMemorable` for how to use.
-class (MultipleOf8 (MemLen a)) => Memorable a where
+class Memorable a where
     -- Do not lie. Use @`testMemLen`@.
     type MemLen a :: Nat
     renderMem :: a -> M (MemLen a)
@@ -520,25 +583,133 @@ instance Memorable Int64 where
     type MemLen Int64 = 64
     renderMem = M . Data.Binary.put
 
-instance (Memorable a, Memorable b, MultipleOf8 (MemLen (a,b))) => Memorable (a,b) where
+instance (Memorable a, Memorable b, MultipleOf8 (MemLen a)) => Memorable (a,b) where
     type MemLen (a,b) = MemLen a + MemLen b
     renderMem (a,b) = smoosh (renderMem a) (renderMem b)
 
-instance (Memorable a, Memorable b, Memorable c, MultipleOf8 (MemLen (a,b,c))) => Memorable (a,b,c) where
+instance (Memorable (a,b), MultipleOf8 (MemLen (a,b)), Memorable c) => Memorable (a,b,c) where
     type MemLen (a,b,c) = MemLen a + MemLen b + MemLen c
-    renderMem (a,b,c) = renderMem a `smoosh` renderMem b `smoosh` renderMem c
+    renderMem (a,b,c) = renderMem (a,b) `smoosh` renderMem c
 
-instance (Memorable a, Memorable b, Memorable c, Memorable d, MultipleOf8 (MemLen (a,b,c,d))) => Memorable (a,b,c,d) where
+
+instance (Memorable (a,b,c), Memorable d, MultipleOf8 (MemLen (a,b,c))) => Memorable (a,b,c,d) where
     type MemLen (a,b,c,d) = MemLen a + MemLen b + MemLen c + MemLen d
-    renderMem (a,b,c,d) = renderMem a `smoosh` renderMem b `smoosh` renderMem c `smoosh` renderMem d
+    renderMem (a,b,c,d) = renderMem (a,b,c) `smoosh` renderMem d
 
-instance (Memorable a, Memorable b, Memorable c, Memorable d, Memorable e, MultipleOf8 (MemLen (a,b,c,d,e))) => Memorable (a,b,c,d,e) where
+instance (Memorable (a,b,c,d), Memorable e, MultipleOf8 (MemLen (a,b,c,d))) => Memorable (a,b,c,d,e) where
     type MemLen (a,b,c,d,e) = MemLen a + MemLen b + MemLen c + MemLen d + MemLen e
-    renderMem (a,b,c,d,e) = renderMem a `smoosh` renderMem b `smoosh` renderMem c `smoosh` renderMem d `smoosh` renderMem e
+    renderMem (a,b,c,d,e) = renderMem (a,b,c,d) `smoosh` renderMem e
 
-instance (Memorable a, Memorable b, Memorable c, Memorable d, Memorable e, Memorable f, MultipleOf8 (MemLen (a,b,c,d,e,f))) => Memorable (a,b,c,d,e,f) where
-    type MemLen (a,b,c,d,e,f) = MemLen a + MemLen b + MemLen c + MemLen d + MemLen e + MemLen f
-    renderMem (a,b,c,d,e,f) = renderMem a `smoosh` renderMem b `smoosh` renderMem c `smoosh` renderMem d `smoosh` renderMem e `smoosh` renderMem f
+#ifdef DATA_DWORD
+instance Memorable Word96 where
+    type MemLen Word96 = 96
+    renderMem (Word96 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Word128 where
+    type MemLen Word128 = 128
+    renderMem (Word128 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Word160 where
+    type MemLen Word160 = 160
+    renderMem (Word160 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Word192 where
+    type MemLen Word192 = 192
+    renderMem (Word192 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Word224 where
+    type MemLen Word224 = 224
+    renderMem (Word224 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Word256 where
+    type MemLen Word256 = 256
+    renderMem (Word256 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Int96 where
+    type MemLen Int96 = 96
+    renderMem (Int96 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Int128 where
+    type MemLen Int128 = 128
+    renderMem (Int128 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Int160 where
+    type MemLen Int160 = 160
+    renderMem (Int160 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Int192 where
+    type MemLen Int192 = 192
+    renderMem (Int192 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Int224 where
+    type MemLen Int224 = 224
+    renderMem (Int224 h l) = renderMem h `smoosh` renderMem l
+
+instance Memorable Int256 where
+    type MemLen Int256 = 256
+    renderMem (Int256 h l) = renderMem h `smoosh` renderMem l
+#endif
+
+#ifdef NETWORK_IP
+-- | >>> renderMemorable threeWordsFor32Bits (ip4FromOctets 127 0 0 1)
+-- "shore-pick-pets"
+instance Memorable IP4 where
+    type MemLen IP4 = 32
+    renderMem (IP4 w) = renderMem w
+
+instance Memorable IP6 where
+    type MemLen IP6 = 128
+    renderMem (IP6 w) = renderMem w
+#endif
+
+#ifdef CRYPTONITE
+#define DIGEST_INST(NAME,BITS) \
+instance Memorable (Digest NAME) where {\
+    type MemLen (Digest NAME) = BITS; \
+    renderMem d = M (Data.Binary.Put.putByteString (convert d));}
+
+DIGEST_INST(Whirlpool,512)
+DIGEST_INST(Blake2s_224,224)
+DIGEST_INST(Blake2s_256,256)
+DIGEST_INST(Blake2sp_224,224)
+DIGEST_INST(Blake2sp_256,256)
+DIGEST_INST(Blake2b_512,512)
+DIGEST_INST(Blake2bp_512,512)
+DIGEST_INST(Tiger,192)
+DIGEST_INST(Skein512_512,512)
+DIGEST_INST(Skein512_384,384)
+DIGEST_INST(Skein512_256,256)
+DIGEST_INST(Skein512_224,224)
+DIGEST_INST(Skein256_224,224)
+DIGEST_INST(Skein256_256,256)
+DIGEST_INST(SHA512t_256,256)
+DIGEST_INST(SHA512t_224,224)
+DIGEST_INST(SHA512,512)
+DIGEST_INST(SHA384,384)
+DIGEST_INST(SHA3_512,512)
+DIGEST_INST(SHA3_384,384)
+DIGEST_INST(SHA3_256,256)
+DIGEST_INST(SHA3_224,224)
+DIGEST_INST(SHA256,256)
+DIGEST_INST(SHA224,224)
+DIGEST_INST(SHA1,160)
+DIGEST_INST(RIPEMD160,160)
+-- | 
+-- >>> :set -XOverloadedStrings
+-- >>> import Data.ByteString
+-- >>> import Crypto.Hash
+-- >>> let myPattern = padHex (four flw10)
+-- >>> renderMemorable myPattern (hash ("anExample" :: ByteString) :: Digest MD5)
+-- "bark-most-gush-tuft-1b7155ab0dce3ecb4195fc"
+DIGEST_INST(MD5,128)
+DIGEST_INST(MD4,128)
+DIGEST_INST(MD2,128)
+DIGEST_INST(Keccak_512,512)
+DIGEST_INST(Keccak_384,384)
+DIGEST_INST(Keccak_256,256)
+DIGEST_INST(Keccak_224,224)
+#undef DIGEST_INST
+#endif
 
 -- | Take an pattern and a @`M` n@ and produces your human readable string.
 -- See `renderMemorable`.
@@ -547,6 +718,12 @@ renderM p (M b) = renderMemorableByteString p (runPut b)
 
 -- | This is the function to use when you want to turn your values into a
 -- memorable strings.
+--
+-- >>> import Data.Word
+-- >>> import Data.Memorable.Theme.Words
+-- >>> let myPattern = words8 .- words8
+-- >>> renderMemorable myPattern (0x0123 :: Word16)
+-- "cats-bulk"
 renderMemorable :: (MemRender p, Depth p ~ MemLen a, Memorable a) => Proxy p -> a -> String
 renderMemorable p a = renderM p (renderMem a)
 
@@ -567,25 +744,3 @@ renderRandom p = do
         nBytes = fromIntegral $ nBits `div` 8 + 1
     bs <- pack <$> replicateM nBytes randomIO
     return $ renderMemorableByteString p bs
-
-flipByte :: Word8 -> Word8
-flipByte b =
-    fromIntegral $
-        ( (fromIntegral b * (0x0202020202 :: Word64))
-        .&. 0x010884422010
-        ) `mod` 1023
-
--- | Render all strings that a pattern will produce.
-renderAll
-    :: forall a. (MemRender a, KnownNat (Depth a))
-    => Proxy a -> [String]
-renderAll p = map (renderMemorableByteString p) allByteStrings
-    where
-        nBits = getDepth p
-        nBytes = fromIntegral $ nBits `div` 8 + 1
-        allByteStrings =
-            take (2 ^ nBits)
-                $ map (pack . reverse)
-                $ replicateM nBytes 
-                $ map flipByte [minBound .. maxBound]
-
