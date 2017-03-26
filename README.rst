@@ -2,6 +2,10 @@
  Memorable Bits
 ================
 
+.. literalinclude:: test/Main.hs
+   :language: haskell
+   :lines 1-5
+
 A library for generating human-readable (and memorable) phrases from
 data. What sets this library apart from most others, is that it is highly
 customisable. The phrases that are generated are described at the type

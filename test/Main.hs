@@ -12,6 +12,7 @@ import GHC.TypeLits
 import Test.Tasty
 import Test.Tasty.QuickCheck as QC
 import Test.Tasty.HUnit
+import Test.DocTest
 
 main :: IO ()
 main = defaultMain tests
@@ -32,5 +33,5 @@ scProps = testGroup "(checked by SmallCheck)"
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-    [
+    [ testCase "DocTest" (doctest ["./src/"])
     ]

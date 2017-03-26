@@ -66,6 +66,7 @@ test-suite test-memorable-bits
                      , tasty-hunit
                      , tasty-quickcheck
                      , tasty-smallcheck
+                     , doctest
                      , HUnit
 
 benchmark bench-memorable-bits

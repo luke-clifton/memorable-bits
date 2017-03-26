@@ -206,7 +206,7 @@ type family Len (a :: [Symbol]) :: Nat where
 -- probability of occurring. Length of the list must be a power of two. This
 -- is very useful for converting long lists of words into a usable pattern.
 --
--- >>> > :kind! ToTree '["a", "b", "c", "d"]
+-- >>> :kind! ToTree '["a", "b", "c", "d"]
 -- ToTree '["a", "b", "c", "d"] :: *
 -- = ("a" :| "b") :| ("c" :| "d")
 type family ToTree (a :: [k]) :: * where
