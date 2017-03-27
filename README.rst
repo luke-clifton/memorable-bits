@@ -1,10 +1,9 @@
-================
- Memorable Bits
-================
-a
+================================
+ Memorable Bits |hackage-badge|
+================================
 
-.. include:: test/Main.hs
-   :code: haskell
+.. |hackage-badge| image:: https://img.shields.io/hackage/v/memorable-bits.svg
+
 
 A library for generating human-readable (and memorable) phrases from
 data. What sets this library apart from most others, is that it is highly
