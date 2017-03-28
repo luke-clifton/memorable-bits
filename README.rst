@@ -14,21 +14,23 @@ enough bits to cover the data being converted.
 The library comes with some pre-baked themes::
 
     λ> :set -XOverloadedStrings
+    λ> import Data.Word
+    λ> import Crypto.Hash
+    λ> import Network.IP.Addr
     λ> import Data.Memorable
     λ>
     λ> import Data.Memorable.Theme.Fantasy
     λ> renderMemorable (padHex rpgWeapons) (12345 :: Word32)
     "ghostly-trident-of-zombie-tormenting-039"
     λ>
-    λ> renderMemorable (padHex desserts) (12345 :: Word32)
-    "creamy-cherry-cupcakes-003039"
+    λ> import Data.Memorable.Theme.Food
+    λ> renderMemorable (padHex desserts) $ ip4FromOctets 127 0 0 1
+    "bland-strawberry-pancakes-000001"
     λ>
     λ> import Data.Memorable.Theme.Words
-    λ> renderMemorable threeWordsFor32Bits (12345 :: Word32)
-    "colleague-peas-omit"
-    λ>
-    λ> renderMemorable fourEqualWordsFor32Bits (12345 :: Word32)
-    "chap-chap-iris-rate"
+    λ> let h = hash ("an example" :: ByteString) :: Digest MD5
+    λ> renderMemorable (padHex eightEqualWordsFor64Bits) a
+    "than-high-bonk-gash-into-keen-rush-swat-7efea731142d8f84"
     λ>
     λ> import Data.Memorable.Theme.Science
     λ> renderMemorable (padDec chemBabble) (0xdeadbeef :: Word32)
