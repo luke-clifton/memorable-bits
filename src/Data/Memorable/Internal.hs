@@ -22,6 +22,7 @@ import Data.Maybe
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Binary.Bits.Get
+import Data.Hashable
 import qualified Data.Binary.Bits.Put as BP
 import Data.Binary.Get (runGet)
 import qualified Data.Binary
@@ -47,7 +48,10 @@ import Network.IP.Addr
 #endif
 #ifdef CRYPTONITE
 import Data.ByteArray (convert)
-import Crypto.Hash
+import Crypto.Hash hiding (hash)
+#endif
+#ifdef HASHABLE
+import Data.Hashable
 #endif
 
 -- | Choice between two sub patterns. It's not safe to use this directly.
@@ -99,7 +103,6 @@ data NumberWithOffset nt (n :: Nat) (o :: Nat)
 --
 -- See `padHex` and `padDec` for convinence functions.
 data PadTo nt (n :: Nat) a
-
 
 ---------------------------------------------------------------------
 -- Utility type functions
@@ -384,7 +387,6 @@ padHex _ = Proxy
 padDec :: Proxy a -> Proxy (PadTo Dec n a)
 padDec _ = Proxy
 
-
 ---------------------------------------------------------------------
 -- BitPull
 ---------------------------------------------------------------------
@@ -475,6 +477,7 @@ instance (NumberRender nt, KnownNat a, KnownNat o) => MemRender (NumberWithOffse
 instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat n) => MemRender (PadTo nt n a) where
     render _ = do
         s1 <- render (Proxy :: Proxy a)
+        -- TODO: Remove getConsumedCount
         c <- getConsumedCount
         let
             n = natVal (Proxy :: Proxy n)
@@ -744,3 +747,16 @@ renderRandom p = do
         nBytes = fromIntegral $ nBits `div` 8 + 1
     bs <- pack <$> replicateM nBytes randomIO
     return $ renderMemorableByteString p bs
+
+
+-- | Render any `Hashable` value as a 32 bit pattern.
+renderHashable32 :: (MemRender p, Depth p ~ 32, Hashable a) => Proxy p -> a -> String
+renderHashable32 p a = renderMemorable p (fromIntegral $ hash a :: Word32)
+
+-- | Render any `Hashable` value as a 16 bit pattern.
+renderHashable16 :: (MemRender p, Depth p ~ 16, Hashable a) => Proxy p -> a -> String
+renderHashable16 p a = renderMemorable p (fromIntegral $ hash a :: Word16)
+
+-- | Render any `Hashable` value as a 8 bit pattern.
+renderHashable8 :: (MemRender p, Depth p ~ 8, Hashable a) => Proxy p -> a -> String
+renderHashable8 p a = renderMemorable p (fromIntegral $ hash a :: Word8)

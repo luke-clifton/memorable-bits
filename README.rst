@@ -68,4 +68,3 @@ the convenience functions ``padHex`` and ``padDec``::
     λ> let myPattern = padHex (four flw10)
     λ> renderMemorable myPattern (hash ("anExample" :: ByteString) :: Digest MD5)
     "bark-most-gush-tuft-1b7155ab0dce3ecb4195fc"
-

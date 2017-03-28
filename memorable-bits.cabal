@@ -40,6 +40,7 @@ library
                      , binary
                      , binary-bits
                      , bytestring
+                     , hashable
                      , random 
                      , mtl
   hs-source-dirs:      src
