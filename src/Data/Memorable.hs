@@ -1,5 +1,6 @@
 module Data.Memorable
     ( renderMemorable
+    , parseMemorable
     , Memorable(..)
     -- * Pattern Building
     , (.-), (.|)

@@ -17,7 +17,9 @@ module Data.Memorable.Internal where
 import Control.Arrow (first)
 import Text.Printf
 import Control.Applicative
+import Control.Monad.Except
 import Data.Maybe
+import Data.List.Split
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Hashable
@@ -57,6 +59,12 @@ import Data.Hashable
 
 -- | Choice between two sub patterns. It's not safe to use this directly.
 -- Use `.|` instead.
+--
+-- Also, if you are parsing back rendered phrases, you must make sure that
+-- the selected word is enough to choose a side. That is, `a` and `b` must
+-- have unique first words. This is NOT checked, as it causes a HUGE
+-- compile-time performance hit. If we can make it performant it may be
+-- checked one day.
 data a :| b
 
 -- | Append two patterns together by doing the first, then the second. See
@@ -77,6 +85,8 @@ data a :- b
 -- "foo-7f"
 --
 -- See also 'ToTree'
+--
+-- WARNING: Each side of the split must be unique. See the warning about `:|`.
 (.|) :: (Depth a ~ Depth b) => Proxy a -> Proxy b -> Proxy (a :| b)
 _ .| _ = Proxy
 
@@ -279,19 +289,6 @@ type family BitsInPowerOfTwo (a :: Nat) :: Nat where
     BitsInPowerOfTwo 4096 = 12
     BitsInPowerOfTwo 8192 = 13
 
--- | This type family is used to make sure that the total number of bit's
--- covered by a pattern fit's into a integer number of 8 bit bytes.
-type family MultipleOf8 a :: Constraint where
-    MultipleOf8 0 = ()
-    MultipleOf8 1 = TypeError (Text "Not a multiple of 8")
-    MultipleOf8 2 = TypeError (Text "Not a multiple of 8") 
-    MultipleOf8 3 = TypeError (Text "Not a multiple of 8") 
-    MultipleOf8 4 = TypeError (Text "Not a multiple of 8") 
-    MultipleOf8 5 = TypeError (Text "Not a multiple of 8") 
-    MultipleOf8 6 = TypeError (Text "Not a multiple of 8") 
-    MultipleOf8 7 = TypeError (Text "Not a multiple of 8") 
-    MultipleOf8 x = MultipleOf8 (x - 8)
-
 type family Find a as :: Bool where
     Find a '[] = 'False
     Find a (a ': as) = 'True
@@ -427,23 +424,67 @@ dec32 = Proxy
 -- | The class that implements the main rendering function.
 class MemRender a where
     render :: Proxy a -> Coding Get String
+    parser :: Proxy a -> ExceptT String (State ([String], Coding PutM ())) ()
+
+addBits :: Coding PutM () -> ExceptT String (State ([String], Coding PutM ())) ()
+addBits c = do
+    (s,cs) <- get
+    put (s,cs >> c)
 
 symbolString :: KnownSymbol a => Proxy a -> String
 symbolString = concatMap tr . symbolVal
     where
-        tr '-' = "\\-"
+        tr '-' = "\\_"
         tr '\\' = "\\\\"
         tr c = [c]
 
+stringSymbol :: String -> String
+stringSymbol [] = []
+stringSymbol ('\\':'\\':rest) = '\\' : stringSymbol rest
+stringSymbol ('\\':'_':rest) = '-' : stringSymbol rest
+stringSymbol (a:rest) = a : stringSymbol rest
+
+parsePhrase :: MemRender p => Proxy p -> String -> Maybe ByteString
+parsePhrase p input =
+    let
+        tokens = map stringSymbol $ splitOn "-" input
+        stm = runExceptT (parser p)
+        (e,(_,cdm)) = runState stm (tokens, pure ())
+        ptm = runCoding (cdm <* Data.Bytes.Put.flush) (\a _ _ -> pure a) 0 0
+    in
+        case e of
+            Left _ -> Nothing
+            Right () -> Just $ runPutL ptm
+
+-- | Turn a memorable string back into a 'Memorable' value.
+parseMemorable :: (Memorable a, MemRender p, MemLen a ~ Depth p) => Proxy p -> String -> Maybe a
+parseMemorable p input =
+    let
+        bs = parsePhrase p input
+    in runParser <$> bs
+        
 
 instance (KnownSymbol a) => MemRender (a :: Symbol) where
     render = return . symbolString
+    parser p = do
+        (ss,cs) <- get
+        case ss of
+            [] -> empty
+            s:ss' ->
+                if s == symbolVal p
+                    then put (ss',cs)
+                    else empty
+        
 
 instance (MemRender a, MemRender b) => MemRender (a :- b) where
     render _ = do
         sa <- render (Proxy :: Proxy a)
         sb <- render (Proxy :: Proxy b)
         return $ sa ++ "-" ++ sb
+    parser _ = do
+        parser (Proxy :: Proxy a)
+        parser (Proxy :: Proxy b)
+        
 
 instance (MemRender a, MemRender b) => MemRender (a :| b) where
     render _ = do
@@ -451,6 +492,16 @@ instance (MemRender a, MemRender b) => MemRender (a :| b) where
         if b
             then render (Proxy :: Proxy a)
             else render (Proxy :: Proxy b)
+    parser _ = do
+        s <- get
+        catchError (do
+            addBits (putBit True)
+            parser (Proxy :: Proxy a) 
+            ) (\_ -> do
+            put s
+            addBits (putBit False)
+            parser (Proxy :: Proxy b)
+            )
 
 instance (NumberRender nt, KnownNat a, KnownNat o) => MemRender (NumberWithOffset nt a o) where
     render _ = do
@@ -459,6 +510,24 @@ instance (NumberRender nt, KnownNat a, KnownNat o) => MemRender (NumberWithOffse
             b = natVal (Proxy :: Proxy a)
         w <- getBitsFrom (fromIntegral (pred b)) 0
         return $ renderNumber (Proxy :: Proxy nt) b (w + o)
+
+    parser _ = do
+        let
+            o = natVal (Proxy :: Proxy o)
+            b = natVal (Proxy :: Proxy a)
+        (ss,cs) <- get
+        case ss of
+            [] -> empty
+            (s:ss') -> do
+                let
+                    n = readNumber (Proxy :: Proxy nt) b s
+                case n of
+                    Nothing -> empty
+                    Just n' -> do
+                        let n'' = n' - o
+                        when (n'' >= 2^b) empty
+                        put (ss',cs >> putBitsFrom (fromIntegral $ pred b) n'')
+                
 
 instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat (n - Depth a)) => MemRender (PadTo nt n a) where
     render _ = do
@@ -471,6 +540,23 @@ instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat (n - Depth a)) =>
             _ -> do
                 d <- getBitsFrom (fromIntegral (pred diff)) 0
                 return $ s1 ++ "-" ++ renderNumber ntp diff d
+
+    parser _ = do
+        let
+            nt = Proxy :: Proxy nt
+            diff = natVal (Proxy :: Proxy (n - Depth a))
+        parser (Proxy :: Proxy a)
+        case diff of
+            0 -> return ()
+            _ -> do
+                (ss,cs) <- get
+                when (null ss) empty
+                let
+                    (s:ss') = ss
+                    n = readNumber nt diff s
+                n' <- maybe empty return n
+                when (n' >= 2^diff) empty
+                put (ss', cs >> putBitsFrom (fromIntegral $ pred diff) n')
 
 ---------------------------------------------------------------------
 -- NumberRender
@@ -513,6 +599,10 @@ class Memorable a where
     -- Do not lie. Use @`testMemLen`@.
     type MemLen a :: Nat
     renderMem :: MonadPut m => a -> Coding m ()
+    parserMem :: MonadGet m => Coding m a
+
+memBitSize :: forall a. (KnownNat (MemLen a)) => Proxy a -> Int
+memBitSize _ = fromIntegral $ natVal (Proxy :: Proxy (MemLen a))
 
 -- | Use this with tasty-quickcheck (or your prefered testing framework) to
 -- make sure you aren't lying about `MemLen`.
@@ -534,100 +624,124 @@ testMemLen a =
 instance Memorable Word8 where
     type MemLen Word8 = 8
     renderMem = putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Word8)) 0
 
 instance Memorable Word16 where
     type MemLen Word16 = 16
     renderMem = putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Word16)) 0
 
 instance Memorable Word32 where
     type MemLen Word32 = 32
     renderMem = putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Word32)) 0
 
 instance Memorable Word64 where
     type MemLen Word64 = 64
     renderMem = putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Word64)) 0
 
 instance Memorable Int8 where
     type MemLen Int8 = 8
     renderMem =  putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Int8)) 0
 
 instance Memorable Int16 where
     type MemLen Int16 = 16
     renderMem = putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Int16)) 0
 
 instance Memorable Int32 where
     type MemLen Int32 = 32
     renderMem = putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Int32)) 0
 
 instance Memorable Int64 where
     type MemLen Int64 = 64
     renderMem = putUnaligned
+    parserMem = getBitsFrom (pred $ memBitSize (Proxy :: Proxy Int64)) 0
 
 instance (Memorable a, Memorable b) => Memorable (a,b) where
     type MemLen (a,b) = MemLen a + MemLen b
     renderMem (a,b) = renderMem a >> renderMem b
+    parserMem = (,) <$> parserMem <*> parserMem
 
-instance (Memorable (a,b), Memorable c) => Memorable (a,b,c) where
+instance (Memorable a, Memorable b, Memorable c) => Memorable (a,b,c) where
     type MemLen (a,b,c) = MemLen a + MemLen b + MemLen c
-    renderMem (a,b,c) = renderMem (a,b) >> renderMem c
+    renderMem (a,b,c) = renderMem a >> renderMem b >> renderMem c
+    parserMem = (,,) <$> parserMem <*> parserMem <*> parserMem
 
 
-instance (Memorable (a,b,c), Memorable d) => Memorable (a,b,c,d) where
+instance (Memorable a, Memorable b, Memorable c, Memorable d) => Memorable (a,b,c,d) where
     type MemLen (a,b,c,d) = MemLen a + MemLen b + MemLen c + MemLen d
-    renderMem (a,b,c,d) = renderMem (a,b,c) >> renderMem d
+    renderMem (a,b,c,d) = renderMem a >> renderMem b >> renderMem c >> renderMem d
+    parserMem = (,,,) <$> parserMem <*> parserMem <*> parserMem <*> parserMem
 
-instance (Memorable (a,b,c,d), Memorable e) => Memorable (a,b,c,d,e) where
+instance (Memorable a, Memorable b, Memorable c, Memorable d, Memorable e) => Memorable (a,b,c,d,e) where
     type MemLen (a,b,c,d,e) = MemLen a + MemLen b + MemLen c + MemLen d + MemLen e
-    renderMem (a,b,c,d,e) = renderMem (a,b,c,d) >> renderMem e
+    renderMem (a,b,c,d,e) = renderMem a >> renderMem b >> renderMem c >> renderMem d >> renderMem e
+    parserMem = (,,,,) <$> parserMem <*> parserMem <*> parserMem <*> parserMem <*> parserMem
 
 #ifdef DATA_DWORD
 instance Memorable Word96 where
     type MemLen Word96 = 96
     renderMem (Word96 h l) = renderMem h >> renderMem l
+    parserMem = Word96 <$> parserMem <*> parserMem
 
 instance Memorable Word128 where
     type MemLen Word128 = 128
     renderMem (Word128 h l) = renderMem h >> renderMem l
+    parserMem = Word128 <$> parserMem <*> parserMem
 
 instance Memorable Word160 where
     type MemLen Word160 = 160
     renderMem (Word160 h l) = renderMem h >> renderMem l
+    parserMem = Word160 <$> parserMem <*> parserMem
 
 instance Memorable Word192 where
     type MemLen Word192 = 192
     renderMem (Word192 h l) = renderMem h >> renderMem l
+    parserMem = Word192 <$> parserMem <*> parserMem
 
 instance Memorable Word224 where
     type MemLen Word224 = 224
     renderMem (Word224 h l) = renderMem h >> renderMem l
+    parserMem = Word224 <$> parserMem <*> parserMem
 
 instance Memorable Word256 where
     type MemLen Word256 = 256
     renderMem (Word256 h l) = renderMem h >> renderMem l
+    parserMem = Word256 <$> parserMem <*> parserMem
 
 instance Memorable Int96 where
     type MemLen Int96 = 96
     renderMem (Int96 h l) = renderMem h >> renderMem l
+    parserMem = Int96 <$> parserMem <*> parserMem
 
 instance Memorable Int128 where
     type MemLen Int128 = 128
     renderMem (Int128 h l) = renderMem h >> renderMem l
+    parserMem = Int128 <$> parserMem <*> parserMem
 
 instance Memorable Int160 where
     type MemLen Int160 = 160
     renderMem (Int160 h l) = renderMem h >> renderMem l
+    parserMem = Int160 <$> parserMem <*> parserMem
 
 instance Memorable Int192 where
     type MemLen Int192 = 192
     renderMem (Int192 h l) = renderMem h >> renderMem l
+    parserMem = Int192 <$> parserMem <*> parserMem
 
 instance Memorable Int224 where
     type MemLen Int224 = 224
     renderMem (Int224 h l) = renderMem h >> renderMem l
+    parserMem = Int224 <$> parserMem <*> parserMem
 
 instance Memorable Int256 where
     type MemLen Int256 = 256
     renderMem (Int256 h l) = renderMem h >> renderMem l
+    parserMem = Int256 <$> parserMem <*> parserMem
 #endif
 
 #ifdef NETWORK_IP
@@ -636,17 +750,23 @@ instance Memorable Int256 where
 instance Memorable IP4 where
     type MemLen IP4 = 32
     renderMem (IP4 w) = renderMem w
+    parserMem = IP4 <$> parserMem
 
 instance Memorable IP6 where
     type MemLen IP6 = 128
     renderMem (IP6 w) = renderMem w
+    parserMem = IP6 <$> parserMem
 #endif
 
 #ifdef CRYPTONITE
 #define DIGEST_INST(NAME,BITS) \
 instance Memorable (Digest NAME) where {\
     type MemLen (Digest NAME) = BITS; \
-    renderMem = mapM_ putUnaligned . B.unpack . convert ;}
+    renderMem = mapM_ putUnaligned . B.unpack . convert; \
+    parserMem = do { \
+        let {b = (BITS) `div` 8;}; \
+        Just md <- (digestFromByteString . B.pack) <$> replicateM b (getBitsFrom 7 0); \
+        return md;}}
 
 DIGEST_INST(Whirlpool,512)
 DIGEST_INST(Blake2s_224,224)
@@ -700,10 +820,13 @@ DIGEST_INST(Keccak_224,224)
 -- >>> renderMemorable myPattern (0x0123 :: Word16)
 -- "cats-bulk"
 renderMemorable :: (MemRender p, Depth p ~ MemLen a, Memorable a) => Proxy p -> a -> String
-renderMemorable p a = renderMemorableByteString p (runRender $ renderMem a)
+renderMemorable p a = renderMemorableByteString p (runRender a)
 
-runRender :: Coding PutM a -> ByteString
-runRender c = runPutL (runCoding c (\_ _ _ -> pure ()) 0 0)
+runRender :: Memorable a => a -> ByteString
+runRender c = runPutL (runCoding (renderMem c) (\_ _ _ -> pure ()) 0 0)
+
+runParser :: Memorable a => ByteString -> a
+runParser = runGet (runCoding parserMem (\a _ _ -> pure a) 0 0)
 
 -- | Render a `ByteString` as a more memorable `String`.
 renderMemorableByteString

@@ -42,6 +42,7 @@ library
                      , binary
                      , bytestring
                      , hashable
+                     , split
                      , random 
                      , mtl
   hs-source-dirs:      src

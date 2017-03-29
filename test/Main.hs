@@ -5,9 +5,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Main where
 
-import Data.Memorable
+import Data.Memorable.Internal
+import Data.Proxy
 import Data.Memorable.Theme.Words
 import Data.Word
+import Data.Int
 import Data.List
 import GHC.TypeLits
 import Text.Printf
@@ -26,6 +28,10 @@ tests = testGroup "Test"
     , unitTests
     ]
 
+type TestType = (Int8, Int32, Word8, Word64)
+testPat = padHex (words8 .- words10)
+testPat2 = padDec (hex8 .- words4 .- dec4)
+
 properties :: TestTree
 properties = testGroup "Properties"
     [ QC.testProperty "is show" (\x -> show (x :: Word8) == renderMemorable dec8 x)
@@ -34,6 +40,9 @@ properties = testGroup "Properties"
     , QC.testProperty "is %04x" (\x -> printf "%04x" (x :: Word16) == renderMemorable hex16 x)
     , QC.testProperty "is %08x" (\x -> printf "%08x" (x :: Word32) == renderMemorable hex32 x)
     , QC.testProperty "tuples" (\(a,b) -> printf "%02x-%02x" (a :: Word8) (b :: Word8) == renderMemorable (hex8 .- hex8) (a,b))
+    , QC.testProperty "render/parse" (\a -> runParser (runRender (a :: TestType)) == a)
+    , QC.testProperty "rMem/pMem" (\a -> parseMemorable testPat (renderMemorable testPat a) == Just (a :: TestType))
+    , QC.testProperty "rMem/pMem" (\a -> parseMemorable testPat2 (renderMemorable testPat2 a) == Just (a :: TestType))
     ]
 
 scProps = testGroup "(checked by SmallCheck)"
