@@ -12,7 +12,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Data.Memorable.Internal where
 
 import Control.Arrow (first)
@@ -21,17 +20,19 @@ import Control.Applicative
 import Data.Maybe
 import Control.Monad.State
 import Control.Monad.Writer
-import Data.Binary.Bits.Get
 import Data.Hashable
-import qualified Data.Binary.Bits.Put as BP
-import Data.Binary.Get (runGet)
+import Data.Binary.Get
+import Data.Binary.Put
 import qualified Data.Binary
-import Data.Binary.Put (runPut, putByteString, putWord8, putWord16be, putWord32be, putWord64be)
 import Data.Bits
+import Data.Bits.Coding
+import Data.Bytes.Put
+import Data.Bytes.Get
 import Data.Type.Equality
 import Data.Type.Bool
 import Data.ByteString.Lazy (ByteString, pack, unpack)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as B
 import Data.List
 import Data.Proxy
 import Data.Word
@@ -388,59 +389,12 @@ padDec :: Proxy a -> Proxy (PadTo Dec n a)
 padDec _ = Proxy
 
 ---------------------------------------------------------------------
--- BitPull
----------------------------------------------------------------------
-
--- | Context in which we run our renderers. Allows one to pull of
--- a single bit at a time, or to query for many bits and return them
--- as an `Integer`. It also keeps track of how many bits we have consumed.
-newtype BitPull r = BitPull { unBitPull :: StateT Int BitGet r }
-    deriving (Functor, Applicative, Monad)
-
--- | Get a single bit from the stream as a Bool.
-getBit :: BitPull Bool
-getBit = BitPull $ do
-    modify succ
-    lift getBool
-
--- | Convert the next `n` bits into an unsigned integer.
-getWord :: Int -> BitPull Integer
-getWord n = do
-    bs <- replicateM n getBit
-    return $ foldl' setBit 0 $ map fst $ filter snd $ zip [n-1, n-2 ..] bs
-
--- | Returns the number of bits consumed so far.
-getConsumedCount :: BitPull Int
-getConsumedCount = BitPull get
-
-newtype BitPush r = BitPush { unBitPush :: StateT ([Bool],String) Maybe r }
-    deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
-
-putBit :: Bool -> BitPush ()
-putBit b = BitPush $ modify (first (b:))
-
-putWord :: Int -> Integer -> BitPush ()
-putWord b w = mapM_ (putBit . testBit w) [0 ..  b - 1 ]
-
-getWrittenCount :: BitPush Int
-getWrittenCount = BitPush (length . fst <$> get)
-
-consume :: (Char -> Bool) -> BitPush String
-consume p = BitPush $ do
-    (bs, ss) <- get
-    let
-        s = takeWhile p ss
-        s' = dropWhile p ss
-    put (bs, s')
-    return s
-
----------------------------------------------------------------------
 -- MemRender
 ---------------------------------------------------------------------
 
 -- | The class that implements the main rendering function.
 class MemRender a where
-    render :: Proxy a -> BitPull String
+    render :: Proxy a -> Coding Get String
 
 symbolString :: KnownSymbol a => Proxy a -> String
 symbolString = concatMap tr . symbolVal
@@ -471,22 +425,19 @@ instance (NumberRender nt, KnownNat a, KnownNat o) => MemRender (NumberWithOffse
         let
             o = natVal (Proxy :: Proxy o)
             b = natVal (Proxy :: Proxy a)
-        w <- getWord $ fromIntegral b
+        w <- getBitsFrom (fromIntegral (pred b)) 0
         return $ renderNumber (Proxy :: Proxy nt) b (w + o)
 
-instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat n) => MemRender (PadTo nt n a) where
+instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat (n - Depth a)) => MemRender (PadTo nt n a) where
     render _ = do
         s1 <- render (Proxy :: Proxy a)
-        -- TODO: Remove getConsumedCount
-        c <- getConsumedCount
         let
-            n = natVal (Proxy :: Proxy n)
+            diff = natVal (Proxy :: Proxy (n - Depth a))
             ntp = Proxy :: Proxy nt
-            diff = n - fromIntegral c
         case diff of
             0 -> return s1
             _ -> do
-                d <- getWord $ fromIntegral diff
+                d <- getBitsFrom (fromIntegral (pred diff)) 0
                 return $ s1 ++ "-" ++ renderNumber ntp diff d
 
 ---------------------------------------------------------------------
@@ -524,19 +475,12 @@ instance NumberRender Hex where
 -- Rendering functions for users
 ---------------------------------------------------------------------
 
-newtype M (n :: Nat) = M Data.Binary.Put
-
--- | A monoidal-esque combinator for appending @`M` n@ together.
--- Useful for product instances of @`Memorable`@.
-smoosh :: (MultipleOf8 a) => M a -> M b -> M (a + b)
-smoosh (M x) (M y) = M (x <> y)
-
 -- | Class for all things that can be converted to memorable strings.
 -- See `renderMemorable` for how to use.
 class Memorable a where
     -- Do not lie. Use @`testMemLen`@.
     type MemLen a :: Nat
-    renderMem :: a -> M (MemLen a)
+    renderMem :: MonadPut m => a -> Coding m ()
 
 -- | Use this with tasty-quickcheck (or your prefered testing framework) to
 -- make sure you aren't lying about `MemLen`.
@@ -547,110 +491,111 @@ class Memorable a where
 testMemLen :: forall a. (KnownNat (MemLen a), Memorable a) => a -> Bool
 testMemLen a =
     let
-        M p = renderMem a
-        bs = runPut p
-        l = natVal (Proxy :: Proxy (MemLen a))
-        bl = 8 * fromIntegral (BL.length bs)
+        p :: Coding PutM ()
+        p = renderMem a
+        (x,bs) = runPutM (runCoding p (\a x _ -> return x) 0 0)
+        l = fromIntegral $ natVal (Proxy :: Proxy (MemLen a))
+        bl = 8 * fromIntegral (BL.length bs) - x
     in
         l == bl
 
 instance Memorable Word8 where
     type MemLen Word8 = 8
-    renderMem = M . Data.Binary.put
+    renderMem = putUnaligned
 
 instance Memorable Word16 where
     type MemLen Word16 = 16
-    renderMem = M . Data.Binary.put
+    renderMem = putUnaligned
 
 instance Memorable Word32 where
     type MemLen Word32 = 32
-    renderMem = M . Data.Binary.put
+    renderMem = putUnaligned
 
 instance Memorable Word64 where
     type MemLen Word64 = 64
-    renderMem = M . Data.Binary.put
+    renderMem = putUnaligned
 
 instance Memorable Int8 where
     type MemLen Int8 = 8
-    renderMem = M . Data.Binary.put
+    renderMem =  putUnaligned
 
 instance Memorable Int16 where
     type MemLen Int16 = 16
-    renderMem = M . Data.Binary.put
+    renderMem = putUnaligned
 
 instance Memorable Int32 where
     type MemLen Int32 = 32
-    renderMem = M . Data.Binary.put
+    renderMem = putUnaligned
 
 instance Memorable Int64 where
     type MemLen Int64 = 64
-    renderMem = M . Data.Binary.put
+    renderMem = putUnaligned
 
 instance (Memorable a, Memorable b, MultipleOf8 (MemLen a)) => Memorable (a,b) where
     type MemLen (a,b) = MemLen a + MemLen b
-    renderMem (a,b) = smoosh (renderMem a) (renderMem b)
+    renderMem (a,b) = renderMem a >> renderMem b
 
 instance (Memorable (a,b), MultipleOf8 (MemLen (a,b)), Memorable c) => Memorable (a,b,c) where
     type MemLen (a,b,c) = MemLen a + MemLen b + MemLen c
-    renderMem (a,b,c) = renderMem (a,b) `smoosh` renderMem c
+    renderMem (a,b,c) = renderMem (a,b) >> renderMem c
 
 
 instance (Memorable (a,b,c), Memorable d, MultipleOf8 (MemLen (a,b,c))) => Memorable (a,b,c,d) where
     type MemLen (a,b,c,d) = MemLen a + MemLen b + MemLen c + MemLen d
-    renderMem (a,b,c,d) = renderMem (a,b,c) `smoosh` renderMem d
+    renderMem (a,b,c,d) = renderMem (a,b,c) >> renderMem d
 
 instance (Memorable (a,b,c,d), Memorable e, MultipleOf8 (MemLen (a,b,c,d))) => Memorable (a,b,c,d,e) where
     type MemLen (a,b,c,d,e) = MemLen a + MemLen b + MemLen c + MemLen d + MemLen e
-    renderMem (a,b,c,d,e) = renderMem (a,b,c,d) `smoosh` renderMem e
+    renderMem (a,b,c,d,e) = renderMem (a,b,c,d) >> renderMem e
 
 #ifdef DATA_DWORD
 instance Memorable Word96 where
     type MemLen Word96 = 96
-    renderMem (Word96 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Word96 h l) = renderMem h >> renderMem l
 
 instance Memorable Word128 where
     type MemLen Word128 = 128
-    renderMem (Word128 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Word128 h l) = renderMem h >> renderMem l
 
 instance Memorable Word160 where
     type MemLen Word160 = 160
-    renderMem (Word160 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Word160 h l) = renderMem h >> renderMem l
 
 instance Memorable Word192 where
     type MemLen Word192 = 192
-    renderMem (Word192 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Word192 h l) = renderMem h >> renderMem l
 
 instance Memorable Word224 where
     type MemLen Word224 = 224
-    renderMem (Word224 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Word224 h l) = renderMem h >> renderMem l
 
 instance Memorable Word256 where
     type MemLen Word256 = 256
-    renderMem (Word256 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Word256 h l) = renderMem h >> renderMem l
 
 instance Memorable Int96 where
     type MemLen Int96 = 96
-    renderMem (Int96 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Int96 h l) = renderMem h >> renderMem l
 
 instance Memorable Int128 where
     type MemLen Int128 = 128
-    renderMem (Int128 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Int128 h l) = renderMem h >> renderMem l
 
 instance Memorable Int160 where
     type MemLen Int160 = 160
-    renderMem (Int160 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Int160 h l) = renderMem h >> renderMem l
 
 instance Memorable Int192 where
     type MemLen Int192 = 192
-    renderMem (Int192 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Int192 h l) = renderMem h >> renderMem l
 
 instance Memorable Int224 where
     type MemLen Int224 = 224
-    renderMem (Int224 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Int224 h l) = renderMem h >> renderMem l
 
 instance Memorable Int256 where
     type MemLen Int256 = 256
-    renderMem (Int256 h l) = renderMem h `smoosh` renderMem l
+    renderMem (Int256 h l) = renderMem h >> renderMem l
 #endif
 
 #ifdef NETWORK_IP
@@ -669,7 +614,7 @@ instance Memorable IP6 where
 #define DIGEST_INST(NAME,BITS) \
 instance Memorable (Digest NAME) where {\
     type MemLen (Digest NAME) = BITS; \
-    renderMem d = M (Data.Binary.Put.putByteString (convert d));}
+    renderMem = mapM_ putUnaligned . B.unpack . convert ;}
 
 DIGEST_INST(Whirlpool,512)
 DIGEST_INST(Blake2s_224,224)
@@ -714,11 +659,6 @@ DIGEST_INST(Keccak_224,224)
 #undef DIGEST_INST
 #endif
 
--- | Take an pattern and a @`M` n@ and produces your human readable string.
--- See `renderMemorable`.
-renderM :: (Depth a ~ n, MemRender a) => Proxy a -> M n -> String
-renderM p (M b) = renderMemorableByteString p (runPut b)
-
 -- | This is the function to use when you want to turn your values into a
 -- memorable strings.
 --
@@ -728,14 +668,18 @@ renderM p (M b) = renderMemorableByteString p (runPut b)
 -- >>> renderMemorable myPattern (0x0123 :: Word16)
 -- "cats-bulk"
 renderMemorable :: (MemRender p, Depth p ~ MemLen a, Memorable a) => Proxy p -> a -> String
-renderMemorable p a = renderM p (renderMem a)
+renderMemorable p a = renderMemorableByteString p (runRender $ renderMem a)
+
+runRender :: Coding PutM a -> ByteString
+runRender c = runPutL (runCoding c (\_ _ _ -> pure ()) (-1) 0)
 
 -- | Render a `ByteString` as a more memorable `String`.
 renderMemorableByteString
     :: MemRender a
     => Proxy a -> ByteString -> String
 renderMemorableByteString p =
-    runGet (runBitGet . flip evalStateT 0 . unBitPull $ render p)
+    runGetL (runCoding (render p) (\a _ _ -> return a) 0 0)
+    --runGet (runBitGet . flip evalStateT 0 . unBitPull $ render p)
 
 -- | Generate a random string.
 renderRandom

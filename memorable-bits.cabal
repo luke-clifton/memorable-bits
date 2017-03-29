@@ -37,8 +37,9 @@ library
                      , Data.Memorable.Theme.Science
                      , Data.Memorable.Theme.Words
   build-depends:       base >=4.8 && <4.10
+                     , bits
+                     , bytes
                      , binary
-                     , binary-bits
                      , bytestring
                      , hashable
                      , random 
