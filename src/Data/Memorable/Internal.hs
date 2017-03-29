@@ -388,6 +388,38 @@ padHex _ = Proxy
 padDec :: Proxy a -> Proxy (PadTo Dec n a)
 padDec _ = Proxy
 
+-- | A single hex number consuming 4 bits (with leading 0's).
+hex4 :: Proxy (Number Hex 4)
+hex4 = Proxy
+
+-- | A single hex number consuming 8 bits (with leading 0's).
+hex8 :: Proxy (Number Hex 8)
+hex8 = Proxy
+
+-- | A single hex number consuming 16 bits (with leading 0's).
+hex16 :: Proxy (Number Hex 16)
+hex16 = Proxy
+
+-- | A single hex number consuming 32 bits (with leading 9's).
+hex32 :: Proxy (Number Hex 32)
+hex32 = Proxy
+
+-- | A single decimal number consuming 4 bits (no leading 0's)
+dec4 :: Proxy (Number Dec 4)
+dec4 = Proxy
+
+-- | A single decimal number consuming 8 bits (no leading 0's)
+dec8 :: Proxy (Number Dec 8)
+dec8 = Proxy
+
+-- | A single decimal number consuming 16 bits (no leading 0's)
+dec16 :: Proxy (Number Dec 16)
+dec16 = Proxy
+
+-- | A single decimal number consuming 32 bits (no leading 0's)
+dec32 :: Proxy (Number Dec 32)
+dec32 = Proxy
+
 ---------------------------------------------------------------------
 -- MemRender
 ---------------------------------------------------------------------
@@ -531,20 +563,20 @@ instance Memorable Int64 where
     type MemLen Int64 = 64
     renderMem = putUnaligned
 
-instance (Memorable a, Memorable b, MultipleOf8 (MemLen a)) => Memorable (a,b) where
+instance (Memorable a, Memorable b) => Memorable (a,b) where
     type MemLen (a,b) = MemLen a + MemLen b
     renderMem (a,b) = renderMem a >> renderMem b
 
-instance (Memorable (a,b), MultipleOf8 (MemLen (a,b)), Memorable c) => Memorable (a,b,c) where
+instance (Memorable (a,b), Memorable c) => Memorable (a,b,c) where
     type MemLen (a,b,c) = MemLen a + MemLen b + MemLen c
     renderMem (a,b,c) = renderMem (a,b) >> renderMem c
 
 
-instance (Memorable (a,b,c), Memorable d, MultipleOf8 (MemLen (a,b,c))) => Memorable (a,b,c,d) where
+instance (Memorable (a,b,c), Memorable d) => Memorable (a,b,c,d) where
     type MemLen (a,b,c,d) = MemLen a + MemLen b + MemLen c + MemLen d
     renderMem (a,b,c,d) = renderMem (a,b,c) >> renderMem d
 
-instance (Memorable (a,b,c,d), Memorable e, MultipleOf8 (MemLen (a,b,c,d))) => Memorable (a,b,c,d,e) where
+instance (Memorable (a,b,c,d), Memorable e) => Memorable (a,b,c,d,e) where
     type MemLen (a,b,c,d,e) = MemLen a + MemLen b + MemLen c + MemLen d + MemLen e
     renderMem (a,b,c,d,e) = renderMem (a,b,c,d) >> renderMem e
 
@@ -671,7 +703,7 @@ renderMemorable :: (MemRender p, Depth p ~ MemLen a, Memorable a) => Proxy p -> 
 renderMemorable p a = renderMemorableByteString p (runRender $ renderMem a)
 
 runRender :: Coding PutM a -> ByteString
-runRender c = runPutL (runCoding c (\_ _ _ -> pure ()) (-1) 0)
+runRender c = runPutL (runCoding c (\_ _ _ -> pure ()) 0 0)
 
 -- | Render a `ByteString` as a more memorable `String`.
 renderMemorableByteString

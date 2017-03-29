@@ -28,7 +28,7 @@ data Opt = Opt
 algOption ::
     ( Show a
     , 40 <= MemLen (Digest a)
-    , KnownNat (MemLen (Digest a))
+    , KnownNat (MemLen (Digest a) - 40)
     , Memorable (Digest a)
     , HashAlgorithm a
     ) => a -> Parser (FilePath -> IO ())
@@ -90,7 +90,7 @@ main = do
     mapM_ algorithm files
 
 run :: forall a.
-    ( KnownNat (MemLen (Digest a))
+    ( KnownNat (MemLen (Digest a) - 40)
     , Memorable (Digest a)
     , 40 <= MemLen (Digest a)
     , HashAlgorithm a
