@@ -27,7 +27,7 @@ import Data.Binary.Get
 import Data.Binary.Put
 import qualified Data.Binary
 import Data.Bits
-import Data.Bits.Coding
+import Data.Bits.Coding hiding (putUnaligned)
 import Data.Bytes.Put
 import Data.Bytes.Get
 import Data.Type.Equality
@@ -620,6 +620,9 @@ testMemLen a =
         bl = 8 * fromIntegral (BL.length bs) - x
     in
         l == bl
+
+putUnaligned :: (MonadPut m, FiniteBits b) => b -> Coding m ()
+putUnaligned b = putBitsFrom (pred $ finiteBitSize b) b
 
 instance Memorable Word8 where
     type MemLen Word8 = 8

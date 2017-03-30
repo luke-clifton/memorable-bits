@@ -36,15 +36,15 @@ library
                      , Data.Memorable.Theme.Metric
                      , Data.Memorable.Theme.Science
                      , Data.Memorable.Theme.Words
-  build-depends:       base >=4.8 && <4.10
-                     , bits
-                     , bytes
-                     , binary
-                     , bytestring
-                     , hashable
-                     , split
-                     , random 
-                     , mtl
+  build-depends:       base >=4.8 && <5
+                     , bits >=0.5
+                     , bytes >=0.15
+                     , binary >=0.8
+                     , bytestring >=0.10
+                     , hashable >=1.2
+                     , split >=0.2
+                     , random >=1.1
+                     , mtl >=2.2.1
   hs-source-dirs:      src
   default-language:    Haskell2010
   if flag(network-ip-inst) {
