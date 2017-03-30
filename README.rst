@@ -1,9 +1,9 @@
-================================
- Memorable Bits |hackage-badge|
-================================
+===============================================
+ Memorable Bits |hackage-badge| |travis-badge|
+===============================================
 
 .. |hackage-badge| image:: https://img.shields.io/hackage/v/memorable-bits.svg
-
+.. |travis-badge| image:: https://img.shields.io/travis/rust-lang/rust.svg
 
 A library for generating human-readable (and memorable) phrases from
 data. What sets this library apart from most others, is that it is highly
