@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeOperators #-}
@@ -29,8 +30,8 @@ tests = testGroup "Test"
     ]
 
 type TestType = (Int8, Int32, Word8, Word64)
-testPat = padHex (words8 .- words10)
-testPat2 = padDec (hex8 .- words4 .- dec4)
+testPat = padHex @112 (words8 .- words10)
+testPat2 = padDec @112 (hex8 .- words4 .- dec4)
 
 properties :: TestTree
 properties = testGroup "Properties"
@@ -43,6 +44,7 @@ properties = testGroup "Properties"
     , QC.testProperty "render/parse" (\a -> runParser (runRender (a :: TestType)) == a)
     , QC.testProperty "rMem/pMem" (\a -> parseMemorable testPat (renderMemorable testPat a) == Just (a :: TestType))
     , QC.testProperty "rMem/pMem" (\a -> parseMemorable testPat2 (renderMemorable testPat2 a) == Just (a :: TestType))
+    , QC.testProperty "rerender" (\a -> let x = renderMemorable testPat (a :: TestType) in Just x == (rerender testPat2 testPat =<< rerender testPat testPat2 x))
     ]
 
 scProps = testGroup "(checked by SmallCheck)"

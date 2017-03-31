@@ -377,12 +377,12 @@ two _ = Proxy
 -- >>> import Data.Memorable.Theme.Fantasy
 -- >>> renderMemorable (padHex rpgWeapons) (0xdeadbeef01020304 :: Word64)
 -- "sacred-club-of-ghoul-charming-eef01020304"
-padHex :: Proxy a -> Proxy (PadTo Hex n a)
+padHex :: forall n a. Proxy a -> Proxy (PadTo Hex n a)
 padHex _ = Proxy
 
 -- | Pad with decimal digits. See 'padHex' and 'Dec' for details. This does
 -- not pad with 0's
-padDec :: Proxy a -> Proxy (PadTo Dec n a)
+padDec :: forall n a. Proxy a -> Proxy (PadTo Dec n a)
 padDec _ = Proxy
 
 -- | A single hex number consuming 4 bits (with leading 0's).
@@ -397,9 +397,14 @@ hex8 = Proxy
 hex16 :: Proxy (Number Hex 16)
 hex16 = Proxy
 
--- | A single hex number consuming 32 bits (with leading 9's).
+-- | A single hex number consuming 32 bits (with leading 0's).
 hex32 :: Proxy (Number Hex 32)
 hex32 = Proxy
+
+-- | A single hex number consuming `n` bits, which it will try and figure
+-- out from context (with leading 0's).
+hex :: Proxy (Number Hex n)
+hex = Proxy
 
 -- | A single decimal number consuming 4 bits (no leading 0's)
 dec4 :: Proxy (Number Dec 4)
@@ -416,6 +421,11 @@ dec16 = Proxy
 -- | A single decimal number consuming 32 bits (no leading 0's)
 dec32 :: Proxy (Number Dec 32)
 dec32 = Proxy
+
+-- | A single decimal number consuming `n` bits, which it will try and figure
+-- out from context (no leading 0's)
+dec :: Proxy (Number Dec n)
+dec = Proxy
 
 ---------------------------------------------------------------------
 -- MemRender
@@ -462,7 +472,18 @@ parseMemorable p input =
     let
         bs = parsePhrase p input
     in runParser <$> bs
-        
+
+-- | Convert a memorable string into a different memorable string.
+--
+-- Useful for things like taking an existing md5, and converting it
+-- into a memorable one.
+--
+-- >>> :set -XTypeApplications -XDataKinds
+-- >>> import Data.Memorable.Theme.Words
+-- >>> rerender hex (padHex @128 $ four words10) "2d4fbe4d5db8748c931b85c551d03360"
+-- Just "lurk-lash-atop-hole-b8748c931b85c551d03360"
+rerender :: (MemRender a, MemRender b, Depth a ~ Depth b) => Proxy a -> Proxy b -> String -> Maybe String
+rerender a b input = renderMemorableByteString b <$> parsePhrase a input
 
 instance (KnownSymbol a) => MemRender (a :: Symbol) where
     render = return . symbolString
@@ -529,11 +550,11 @@ instance (NumberRender nt, KnownNat a, KnownNat o) => MemRender (NumberWithOffse
                         put (ss',cs >> putBitsFrom (fromIntegral $ pred b) n'')
                 
 
-instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat (n - Depth a)) => MemRender (PadTo nt n a) where
+instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat n, KnownNat (Depth a)) => MemRender (PadTo nt n a) where
     render _ = do
         s1 <- render (Proxy :: Proxy a)
         let
-            diff = natVal (Proxy :: Proxy (n - Depth a))
+            diff = natVal (Proxy :: Proxy n) - natVal (Proxy :: Proxy (Depth a))
             ntp = Proxy :: Proxy nt
         case diff of
             0 -> return s1
@@ -544,7 +565,7 @@ instance (MemRender a, Depth a <= n, NumberRender nt, KnownNat (n - Depth a)) =>
     parser _ = do
         let
             nt = Proxy :: Proxy nt
-            diff = natVal (Proxy :: Proxy (n - Depth a))
+            diff = natVal (Proxy :: Proxy n) - natVal (Proxy :: Proxy (Depth a))
         parser (Proxy :: Proxy a)
         case diff of
             0 -> return ()

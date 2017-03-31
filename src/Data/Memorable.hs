@@ -1,12 +1,13 @@
 module Data.Memorable
     ( renderMemorable
     , parseMemorable
+    , rerender
     , Memorable(..)
     -- * Pattern Building
     , (.-), (.|)
     , two, three, four, five
     , padHex, padDec
-    , hex4, hex8, hex16, hex32, dec4, dec8, dec16, dec32
+    , hex, hex4, hex8, hex16, hex32, dec, dec4, dec8, dec16, dec32
     , ToTree
     , leftSide
     , rightSide
