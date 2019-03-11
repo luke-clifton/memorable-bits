@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                memorable-bits
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Generate human memorable strings from binary data.
 license:             BSD2
 license-file:        LICENSE
