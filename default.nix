@@ -1,7 +1,4 @@
-let
-  default-nixpkgs = fetchTarball https://github.com/NixOS/nixpkgs/archive/50cce50143c8395738702e735c682e4afd965f1c.tar.gz ;
-in
-{ nixpkgs ? import default-nixpkgs {}, compiler ? "default" }:
+{ nixpkgs ? import <nixpkgs> {}, compiler ? "default" }:
 let
   haskellPackages =
     ( if compiler == "default"

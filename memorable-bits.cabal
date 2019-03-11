@@ -63,7 +63,7 @@ library
 test-suite test-memorable-bits
   type:                exitcode-stdio-1.0
   main-is:             test/Main.hs
-  build-depends:       base >=4.8 && <4.10
+  build-depends:       base >=4.8 && <5
                      , memorable-bits
                      , tasty
                      , tasty-hunit
@@ -75,7 +75,7 @@ test-suite test-memorable-bits
 benchmark bench-memorable-bits
   type:                exitcode-stdio-1.0
   main-is:             bench/Main.hs
-  build-depends:       base >=4.8 && <4.10
+  build-depends:       base >=4.8 && <5
                      , criterion
                      , memorable-bits
                      , random
@@ -84,7 +84,7 @@ benchmark bench-memorable-bits
 executable membits
   main-is: app/Membits.hs
   default-language: Haskell2010
-  build-depends: base >=4.8 && <4.10
+  build-depends: base >=4.8 && <5
                , memorable-bits
                , bytestring
                , cryptonite

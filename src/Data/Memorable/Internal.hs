@@ -789,8 +789,8 @@ instance Memorable (Digest NAME) where {\
     renderMem = mapM_ putUnaligned . B.unpack . convert; \
     parserMem = do { \
         let {b = (BITS) `div` 8;}; \
-        Just md <- (digestFromByteString . B.pack) <$> replicateM b (getBitsFrom 7 0); \
-        return md;}}
+        fromJust <$> (digestFromByteString . B.pack) <$> replicateM b (getBitsFrom 7 0); \
+        }}
 
 DIGEST_INST(Whirlpool,512)
 DIGEST_INST(Blake2s_224,224)
